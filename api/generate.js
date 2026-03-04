@@ -3,6 +3,7 @@
 // Tu API key NUNCA se expone al usuario, solo vive en el servidor.
 
 export default async function handler(req, res) {
+  // Solo permitir POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido' });
   }
