@@ -65,17 +65,30 @@ function calcBodyMetrics(form) {
   const activityMultipliers = { "0": 1.2, "1-2": 1.375, "3-4": 1.55, "5+": 1.725 };
   const tdee = bmr * (activityMultipliers[form.exercise] || 1.375);
 
-  // Masa muscular esquelética - Fórmula de Lee (2000)
+  // 1️⃣ Masa muscular esquelética (SMM) - Fórmula de Lee (2000)
+  // Fuente: Lee RC et al., American Journal of Clinical Nutrition, 2000
   const sexFactor = isMale ? 1 : 0;
   const smm = (0.244 * weightKg) + (7.80 * heightM) - (0.098 * age) + (6.6 * sexFactor) - 3.3;
 
-  // Masa corporal magra - Fórmula de Hume
+  // 2️⃣ Masa magra total (LBM) - Fórmula de Boer (1984)
+  // Fuente: Boer P., American Journal of Physiology, 1984
   const lbm = isMale
-    ? (0.32810 * weightKg) + (0.33929 * heightCm) - 29.5336
-    : (0.29569 * weightKg) + (0.41813 * heightCm) - 43.2933;
+    ? (0.407 * weightKg) + (0.267 * heightCm) - 19.2
+    : (0.252 * weightKg) + (0.473 * heightCm) - 48.3;
 
-  // Porcentaje de grasa estimado
-  const fatPct = ((weightKg - lbm) / weightKg) * 100;
+  // 3️⃣ Masa grasa y porcentaje de grasa
+  // Fuente: Heymsfield SB., Human Body Composition
+  const fatMass = weightKg - lbm;
+  const fatPct = (fatMass / weightKg) * 100;
+
+  // 4️⃣ Músculo estimado desde masa magra (verificación cruzada)
+  // Fuente: Janssen I., Journal of Applied Physiology
+  // Músculo esquelético ≈ 0.50–0.55 × LBM
+  const smmFromLbm = 0.52 * lbm;
+
+  // 5️⃣ Índice de músculo esquelético (SMI)
+  // Fuente: Janssen I., 2000
+  const smi = smm / (heightM * heightM);
 
   return {
     bmi: bmi.toFixed(1),
@@ -84,7 +97,10 @@ function calcBodyMetrics(form) {
     tdee: Math.round(tdee),
     smm: Math.max(0, smm).toFixed(1),
     lbm: Math.max(0, lbm).toFixed(1),
+    fatMass: Math.max(0, fatMass).toFixed(1),
     fatPct: Math.max(0, Math.min(60, fatPct)).toFixed(1),
+    smmFromLbm: Math.max(0, smmFromLbm).toFixed(1),
+    smi: Math.max(0, smi).toFixed(1),
     weightKg: weightKg.toFixed(1),
     heightCm: heightCm.toFixed(1),
   };
@@ -127,9 +143,10 @@ function BodyAnalysisCard({ metrics, goal }) {
           { emoji: "⚖️", label: "IMC", value: metrics.bmi, sub: metrics.bmiCategory },
           { emoji: "🔥", label: "Metabolismo basal", value: `${metrics.bmr}`, sub: "kcal/día" },
           { emoji: "⚡", label: "Gasto total (TDEE)", value: `${metrics.tdee}`, sub: "kcal/día" },
-          { emoji: "💪", label: "Masa muscular", value: `${metrics.smm}`, sub: "kg (Lee)" },
-          { emoji: "🦴", label: "Masa magra", value: `${metrics.lbm}`, sub: "kg (Hume)" },
-          { emoji: "📉", label: "Grasa corporal est.", value: `${metrics.fatPct}%`, sub: "estimado" },
+          { emoji: "💪", label: "Masa muscular", value: `${metrics.smm} kg`, sub: "Fórmula de Lee" },
+          { emoji: "🦴", label: "Masa magra total", value: `${metrics.lbm} kg`, sub: "Fórmula de Boer" },
+          { emoji: "🧈", label: "Masa grasa", value: `${metrics.fatMass} kg`, sub: `${metrics.fatPct}% grasa` },
+          { emoji: "📐", label: "Índice muscular (SMI)", value: `${metrics.smi}`, sub: "kg/m²" },
         ].map((m, i) => (
           <div key={i} style={{ background: C.light, borderRadius: 14, padding: "14px", textAlign: "center" }}>
             <div style={{ fontSize: 24, marginBottom: 4 }}>{m.emoji}</div>
@@ -146,7 +163,7 @@ function BodyAnalysisCard({ metrics, goal }) {
       </div>
 
       <div style={sourceStyle}>
-        📚 <strong>Fuentes:</strong> IMC según estándares OMS | Metabolismo basal: Mifflin-St Jeor (1990), <em>Am J Clin Nutr</em> | Masa muscular: Lee RC et al. (2000), <em>Am J Clin Nutr</em> | Masa magra: Hume R. (1966), <em>J Clin Path</em>
+        📚 <strong>Fuentes:</strong> IMC: estándares OMS | Metabolismo basal: Mifflin-St Jeor (1990), <em>Am J Clin Nutr</em> | Masa muscular: Lee RC et al. (2000), <em>Am J Clin Nutr</em> | Masa magra: Boer P. (1984), <em>Am J Physiology</em> | Masa grasa: Heymsfield SB, <em>Human Body Composition</em> | Índice muscular: Janssen I. (2000), <em>J Appl Physiol</em>
       </div>
     </div>
   );
@@ -556,8 +573,10 @@ MÉTRICAS YA CALCULADAS (NO las recalcules, solo interprétalas):
 - IMC: ${metrics.bmi} (${metrics.bmiCategory})
 - Metabolismo basal (Mifflin-St Jeor): ${metrics.bmr} kcal/día
 - TDEE: ${metrics.tdee} kcal/día
-- Masa muscular esquelética (Lee): ${metrics.smm} kg
-- Masa magra (Hume): ${metrics.lbm} kg
+- Masa muscular esquelética (Lee, 2000): ${metrics.smm} kg
+- Masa magra total (Boer, 1984): ${metrics.lbm} kg
+- Masa grasa: ${metrics.fatMass} kg (${metrics.fatPct}%)
+- Índice muscular SMI (Janssen, 2000): ${metrics.smi} kg/m²
 
 Genera las siguientes secciones usando ## para los encabezados principales:
 
