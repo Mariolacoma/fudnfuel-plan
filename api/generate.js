@@ -30,7 +30,7 @@ export default async function handler(req, res) {
         'X-Title': 'FudnFuel Plan',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: 'meta-llama/llama-4-scout:free',
         max_tokens: maxTokens,
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
