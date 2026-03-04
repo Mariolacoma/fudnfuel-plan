@@ -136,7 +136,7 @@ function BodyAnalysisCard({ metrics, goal }) {
 
   return (
     <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
-      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 14 }}>📊 Análisis de tu cuerpo</div>
+      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 14 }}>📊 Análisis aproximado de tu cuerpo</div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 16 }}>
         {[
@@ -396,7 +396,7 @@ function parseAndRenderPlan(planData) {
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
         {parseTips(sec.body).map((tip, i) => (
           <div key={i} style={{ background: C.light, borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>🩸 {tip}</div>
+            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>📈 {tip}</div>
             <LearnMore prompt={`este consejo para controlar la glucosa según el método de Glucose Goddess (Jessie Inchauspé): "${tip}". Explícalo de forma muy simple.`} />
           </div>
         ))}
@@ -479,8 +479,7 @@ function renderText(text) {
   return text.split("\n").map((line, i) => {
     line = line.replace(/\*\*(.+?)\*\*/g, (_, m) => `<strong>${m}</strong>`);
     if (line.startsWith("- ") || line.startsWith("• ")) return (
-      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-        <span style={{ color: C.accent, flexShrink: 0, marginTop: 2 }}>●</span>
+      <div key={i} style={{ marginBottom: 6 }}>
         <span dangerouslySetInnerHTML={{ __html: line.slice(2) }} />
       </div>
     );
@@ -614,11 +613,11 @@ Basándote en los principios de Jessie Inchauspé (Glucose Goddess / "Glucose Re
 - Incluye: vinagre antes de comer, comer vegetales primero, vestir los carbohidratos, caminar después de comer, desayuno salado, no comer dulce con el estómago vacío
 
 ## 💡 Datos Curiosos y Micro-Lecciones
-Lista exactamente 8 datos curiosos. DEBE incluir:
-- 2 datos sobre la conexión intestino-cerebro (basados en "Your Brain on Food" de Uma Naidoo, MD). Menciona que Hipócrates dijo "Toda enfermedad comienza en el intestino" hace más de 2000 años.
+Lista exactamente 10 datos curiosos MEZCLADOS en orden aleatorio (no agrupes por tema). DEBE incluir:
+- 2 datos sobre la conexión intestino-cerebro (basados en "Your Brain on Food" de Uma Naidoo, MD). En uno de ellos menciona que Hipócrates dijo "Toda enfermedad comienza en el intestino" hace más de 2000 años y la ciencia moderna le está dando la razón.
 - 1 dato sobre alimentación intuitiva (basado en "Intuitive Eating" de Evelyn Tribole y Elyse Resch): reconectar con las señales de hambre y saciedad, sin dietas restrictivas.
-- 5 datos más sobre nutrición o movimiento relevantes para la meta del usuario.
-Cada dato 1-2 oraciones, lenguaje simple.
+- 7 datos generales variados y sorprendentes sobre: nutrición, ejercicio, sueño, hidratación, metabolismo, salud mental, o curiosidades científicas del cuerpo humano. Que sean relevantes para la meta del usuario.
+IMPORTANTE: Mezcla todos los datos en orden aleatorio, no los agrupes por categoría. Cada dato 1-2 oraciones, lenguaje simple y amigable.
 
 ${isFemale ? `## 🌸 Guía del Ciclo Femenino
 Proporciona orientación específica para cada fase. Usa ### para cada nombre de fase exactamente como está escrito:
