@@ -8,7 +8,6 @@ export const config = { maxDuration: 60 };
 const MODELS = [
   "openrouter/free",
   "meta-llama/llama-3.3-70b-instruct:free",
-  "openai/gpt-oss-120b:free",
   "google/gemma-4-31b-it:free",
   "deepseek/deepseek-chat-v3-0324:free",
 ];
