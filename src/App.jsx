@@ -67,6 +67,40 @@ function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={labelStyle}>{label}</label>{children}</div>;
 }
 
+// Convierte negritas (**texto**) y saltos (<br>) que a veces manda la IA como texto plano
+function inlineMd(s) {
+  return String(s || "")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/<br\s*\/?>/gi, "<br>");
+}
+
+// Sección desplegable local (sin llamar a la IA): "Fórmula usada", etc.
+function Collapsible({ label, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ background: "none", border: "none", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+        {open ? "▲ " : "▼ "}{label}
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, padding: "10px 14px", background: C.light, borderRadius: 10, fontSize: 13, color: C.text, lineHeight: 1.65 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pie de fuentes en letra pequeña al final de una sección
+function Sources({ children }) {
+  return (
+    <div style={{ marginTop: 12, paddingTop: 8, borderTop: `1px solid ${C.light}`, fontSize: 11, color: C.muted, fontStyle: "italic", lineHeight: 1.55 }}>
+      {children}
+    </div>
+  );
+}
+
 function LearnMore({ prompt }) {
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState("");
@@ -107,7 +141,10 @@ function FunFact({ facts }) {
     <div style={{ ...cardStyle, borderLeft: `4px solid ${C.yellow}`, display: "flex", alignItems: "flex-start", gap: 16 }}>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: C.primary }}>💡 ¿Sabías que...?</div>
-        <div style={{ fontSize: 15, lineHeight: 1.7 }}>{facts[idx]}</div>
+        <div style={{ fontSize: 15, lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: inlineMd(facts[idx]) }} />
+        <div style={{ marginTop: 10, fontSize: 11, color: C.muted, fontStyle: "italic", lineHeight: 1.5 }}>
+          Fuente: revisiones de nutrición basada en evidencia y guías clínicas. Dato general con fines educativos.
+        </div>
       </div>
       <button onClick={() => setIdx(i => (i + 1) % facts.length)}
         style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontSize: 18, flexShrink: 0 }} title="Otro dato">🔀</button>
@@ -238,12 +275,12 @@ function MarkdownTable({ text }) {
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
         <thead>
-          <tr>{headers.map((h, i) => <th key={i} style={{ background: C.primary, color: "#fff", padding: "8px 12px", textAlign: "left", fontWeight: 700 }}>{h}</th>)}</tr>
+          <tr>{headers.map((h, i) => <th key={i} style={{ background: C.primary, color: "#fff", padding: "8px 12px", textAlign: "left", fontWeight: 700 }} dangerouslySetInnerHTML={{ __html: inlineMd(h) }} />)}</tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
             <tr key={i} style={{ background: i % 2 === 0 ? C.light : "#fff" }}>
-              {row.map((cell, j) => <td key={j} style={{ padding: "8px 12px", borderBottom: `1px solid #dde8d8`, color: C.text }}>{cell}</td>)}
+              {row.map((cell, j) => <td key={j} style={{ padding: "8px 12px", borderBottom: `1px solid #dde8d8`, color: C.text, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: inlineMd(cell) }} />)}
             </tr>
           ))}
         </tbody>
@@ -268,6 +305,17 @@ function parseAndRenderPlan(planData) {
       <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 10 }}>{sec.title}</div>
         <div style={{ fontSize: 15, lineHeight: 1.8 }}>{renderText(sec.body)}</div>
+        <Collapsible label="Más info">
+          El <strong>IMC</strong> (índice de masa corporal) relaciona tu peso con tu estatura y da una referencia general; no distingue músculo de grasa, así que es solo orientativo. El <strong>TDEE</strong> es una estimación de las calorías que gastas al día según tu metabolismo basal y tu nivel de actividad. Ambos sirven para orientar tu meta, como punto de partida flexible.
+        </Collapsible>
+        <Collapsible label="Fórmula usada">
+          <div><strong>IMC</strong> = peso (kg) ÷ [estatura (m)]²</div>
+          <div style={{ marginTop: 6 }}><strong>TDEE</strong> = metabolismo basal × factor de actividad física.</div>
+          <div style={{ marginTop: 6 }}>Metabolismo basal (Mifflin-St Jeor, mujeres): 10 × peso(kg) + 6.25 × estatura(cm) − 5 × edad − 161.</div>
+        </Collapsible>
+        <Sources>
+          <strong>Nota:</strong> todos los valores son <strong>aproximados</strong>. IMC según criterios de la Organización Mundial de la Salud (OMS); gasto energético estimado con la ecuación de Mifflin-St Jeor (1990), de uso común en nutrición clínica. Para cifras precisas se requiere una valoración profesional.
+        </Sources>
       </div>
     );
 
@@ -308,6 +356,7 @@ function parseAndRenderPlan(planData) {
             <LearnMore prompt={`los beneficios y usos del suplemento/vitamina: ${s.name}`} />
           </div>
         ))}
+        <Sources>Fuentes: NIH Office of Dietary Supplements y guías de la American Thyroid Association (ATA). Consulta a tu médico antes de tomar cualquier suplemento.</Sources>
       </div>
     );
 
@@ -316,10 +365,11 @@ function parseAndRenderPlan(planData) {
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
         {parseTips(sec.body).map((tip, i) => (
           <div key={i} style={{ background: C.light, borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>🩸 {tip}</div>
+            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>🩸 <span dangerouslySetInnerHTML={{ __html: inlineMd(tip) }} /></div>
             <LearnMore prompt={`este consejo para controlar la glucosa: "${tip}"`} />
           </div>
         ))}
+        <Sources>Fuentes: principios de manejo de glucosa popularizados por Jessie Inchauspé (“Glucose Goddess”) y literatura científica sobre respuesta glucémica posprandial.</Sources>
       </div>
     );
 
@@ -452,22 +502,24 @@ function extractNonTable(text) {
   return text.split("\n").filter(l => !l.includes("|")).join("\n").trim();
 }
 function parseGoals(text) {
+  const lines = text.split("\n");
+  // Toma el número más grande de la línea que contenga la palabra clave
+  const findNum = (kw) => {
+    const line = lines.find(l => new RegExp(kw, "i").test(l));
+    if (!line) return null;
+    const matches = line.match(/\d[\d.,]*/g);
+    if (!matches) return null;
+    const nums = matches.map(x => parseInt(x.replace(/[.,\s]/g, ""), 10)).filter(n => !isNaN(n));
+    if (!nums.length) return null;
+    return String(Math.max(...nums));
+  };
   const goals = [];
-  const patterns = [
-    { re: /(\d[\d,]+)\s*cal/i, label: "Calorías diarias", emoji: "🔥" },
-    { re: /(\d+)\s*tazas?/i, label: "Tazas de agua", emoji: "💧" },
-    { re: /(\d[\d,]+)\s*pasos?/i, label: "Pasos diarios", emoji: "👣" },
-  ];
-  patterns.forEach(({ re, label, emoji }) => {
-    const m = text.match(re);
-    if (m) goals.push({ value: m[1].replace(/,/g, ""), label, emoji });
-  });
-  if (goals.length === 0) {
-    text.split("\n").filter(l => l.trim() && (l.includes("-") || l.includes(":"))).slice(0, 4).forEach((l, i) => {
-      const emojis = ["🔥", "💧", "👣", "⏰"];
-      goals.push({ value: l.replace(/^[-•*]\s*/, "").split(":")[1]?.trim() || l.slice(0, 20), label: l.split(":")[0]?.replace(/^[-•*]\s*/, "").trim() || `Meta ${i + 1}`, emoji: emojis[i] });
-    });
-  }
+  const cal = findNum("cal[oó]r|kcal|calor");
+  if (cal) goals.push({ value: cal, label: "Calorías diarias", emoji: "🔥" });
+  const agua = findNum("agua|taza");
+  if (agua) goals.push({ value: agua, label: "Tazas de agua", emoji: "💧" });
+  const pasos = findNum("paso");
+  if (pasos) goals.push({ value: pasos, label: "Pasos diarios", emoji: "👣" });
   return goals;
 }
 function parseSupplements(text) {
@@ -546,13 +598,13 @@ Genera las siguientes secciones usando ## para los encabezados principales:
 Calcula e interpreta el IMC y el TDEE (gasto energético total diario). Explica qué significa para su meta. Sé alentador y sin juicios.
 
 ## 🍽️ Plan de Alimentación Personalizado
-Proporciona una tabla markdown con columnas: Comida | Opciones de alimentos | Calorías aprox. | Notas. Incluye Desayuno, Almuerzo, Cena y Merienda. Respeta las alergias. Agrega una nota corta sobre el objetivo calórico.
+Proporciona una tabla markdown con columnas: Comida | Opciones de alimentos | Calorías aprox. | Notas. Incluye Desayuno, Almuerzo, Cena y Merienda. Respeta las alergias. Cuando haya varias opciones en una misma celda, sepáralas con punto y coma (;). No uses etiquetas HTML como <br> ni asteriscos dobles (**) dentro de la tabla. Agrega una nota corta sobre el objetivo calórico.
 
 ## 🏋️ Plan de Entrenamiento
 Solo escribe: "¡Usa los botones abajo para elegir tu estilo de entrenamiento favorito y recibir tu rutina personalizada!"
 
 ## 📈 Metas Diarias
-Lista estos tres puntos claramente:
+Lista estos tres puntos con un número entero concreto, sin comas ni rangos (por ejemplo escribe 8000, nunca 8,000 ni 8000-10000):
 - Ingesta calórica diaria: [número] calorías
 - Meta de agua diaria: [número] tazas
 - Meta de pasos diarios: [número] pasos
@@ -599,15 +651,25 @@ Proporciona orientación específica para cada fase. Usa ### para cada nombre de
 
 Termina con un mensaje motivacional corto y cálido personalizado para su situación (sin encabezado ##).`;
 
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, maxTokens: 3000 }),
-      });
-      const d = await res.json();
-      const text = d.text || "";
+    // El modelo gratis a veces tarda o se satura: reintentamos hasta 3 veces
+    let text = "";
+    for (let attempt = 0; attempt < 3 && !text; attempt++) {
+      try {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+        const res = await fetch("/api/generate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, maxTokens: 3000 }),
+        });
+        if (!res.ok) continue;
+        const d = await res.json();
+        text = d.text || "";
+      } catch { /* reintentar */ }
+    }
+    if (text) {
       setPlanData({ raw: text, isFemale, phaseInfo, userProfile: form });
-    } catch { setError("Algo salió mal. Por favor intenta de nuevo."); }
+    } else {
+      setError("La IA tardó en responder. Espera unos segundos y vuelve a intentar. 🙏");
+    }
     setLoading(false);
   };
 
