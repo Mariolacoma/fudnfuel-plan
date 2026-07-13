@@ -1,7 +1,7 @@
 // /api/generate.js — Vercel Serverless Function
 // Este archivo actúa como intermediario entre tu app y OpenRouter.
 // Tu API key NUNCA se expone al usuario, solo vive en el servidor.
-
+export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
   // Solo permitir POST
   if (req.method !== 'POST') {
