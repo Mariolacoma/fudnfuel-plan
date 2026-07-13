@@ -1,53 +1,68 @@
 // /api/generate.js — Vercel Serverless Function
-// Este archivo actúa como intermediario entre tu app y Google Gemini.
-// Tu API key NUNCA se expone al usuario, solo vive en el servidor.
+// Intermediario entre tu app y OpenRouter. Tu API key vive solo en el servidor.
+// Prueba varios modelos gratis en fila: si uno falla o se satura, usa el siguiente.
+
+export const config = { maxDuration: 60 };
+
+// Se intentan en orden hasta que uno responda bien.
+const MODELS = [
+  "openrouter/free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "openai/gpt-oss-120b:free",
+  "google/gemma-4-31b-it:free",
+  "deepseek/deepseek-chat-v3-0324:free",
+];
 
 export default async function handler(req, res) {
-  // Solo permitir POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método no permitido' });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Método no permitido" });
   }
 
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-  if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: 'API key no configurada en el servidor' });
+  const API_KEY = process.env.OPENROUTER_API_KEY;
+  if (!API_KEY) {
+    return res.status(500).json({ error: "API key no configurada en el servidor" });
   }
 
-  try {
-    const { prompt, maxTokens = 2000 } = req.body;
+  const { prompt, maxTokens = 2000 } = req.body || {};
+  if (!prompt) {
+    return res.status(400).json({ error: "Se requiere un prompt" });
+  }
 
-    if (!prompt) {
-      return res.status(400).json({ error: 'Se requiere un prompt' });
-    }
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+  let lastDetail = "";
+  for (const model of MODELS) {
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${API_KEY}`,
+          "HTTP-Referer": "https://fudnfuel-plan.vercel.app",
+          "X-Title": "FudnFuel Plan",
+        },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: maxTokens,
-            temperature: 0.7,
-          },
+          model,
+          max_tokens: maxTokens,
+          temperature: 0.7,
+          messages: [{ role: "user", content: prompt }],
         }),
+      });
+
+      if (!response.ok) {
+        lastDetail = `${model} -> HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`;
+        continue;
       }
-    );
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Gemini API error:', errorData);
-      return res.status(response.status).json({ error: 'Error al conectar con la IA' });
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      if (text) {
+        return res.status(200).json({ text, model });
+      }
+      lastDetail = `${model} -> respuesta vacía`;
+    } catch (e) {
+      lastDetail = `${model} -> ${(e && e.message) || "error"}`;
     }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-
-    return res.status(200).json({ text });
-  } catch (error) {
-    console.error('Server error:', error);
-    return res.status(500).json({ error: 'Error interno del servidor' });
   }
+
+  console.error("OpenRouter falló en todos los modelos:", lastDetail);
+  return res.status(502).json({ error: "La IA está saturada en este momento. Espera unos segundos e intenta de nuevo." });
 }
