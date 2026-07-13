@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 
 // ============================================================
-// FudnFuel Plan v34 — App principal
-// v34: "Qué es esto?" en métricas, emoji 📈 glucosa,
-// fuentes dentro de card, ciclo completo, chat de preguntas
+// FudnFuel Plan v30 — App principal
+// Cambios: Fórmulas Lee/Hume, desayunos sin frutas/high carbs,
+// sources visibles, rutinas en bullets, aviso privacidad,
+// Glucose Goddess, brain-gut, intuitive eating, más variedad comidas
 // ============================================================
 
 const C = {
@@ -23,24 +24,16 @@ const btnPrimary = { background: C.primary, color: "#fff", border: "none", borde
 const btnOutline = (active) => ({ background: active ? C.primary : "#fff", color: active ? "#fff" : C.primary, border: `2px solid ${C.primary}`, borderRadius: 10, padding: "8px 18px", fontSize: 14, fontWeight: 600, cursor: "pointer" });
 const sourceStyle = { fontSize: 12, color: C.muted, fontStyle: "italic", marginTop: 10, padding: "8px 12px", background: "#f0f4ec", borderRadius: 8, lineHeight: 1.5 };
 
+// ---- Helper: llama a tu API serverless ----
 async function callAI(prompt, maxTokens = 2000) {
-  // El modelo gratis a veces tarda o se satura: reintentamos hasta 3 veces
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, maxTokens }),
-      });
-      if (!res.ok) { lastErr = new Error("HTTP " + res.status); continue; }
-      const data = await res.json();
-      if (data.text) return data.text;
-      lastErr = new Error("Respuesta vacía");
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr || new Error("Error al generar respuesta");
+  const res = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, maxTokens }),
+  });
+  if (!res.ok) throw new Error("Error al generar respuesta");
+  const data = await res.json();
+  return data.text || "";
 }
 
 // ============ MOTOR DE PDF (guía horizontal diseñada) ============
@@ -76,7 +69,6 @@ async function renderGuideToPdf(containerId, filename) {
   pdf.save(filename);
 }
 
-// Quita ** y espacios sobrantes para texto plano en el PDF
 function plain(s) { return String(s || "").replace(/\*\*/g, "").trim(); }
 function splitSections(raw) {
   const out = []; const re = /##\s+(.+?)\n([\s\S]*?)(?=\n##\s+|$)/g; let m;
@@ -88,17 +80,14 @@ function parseMenuTable(body) {
   const lines = (body || "").split("\n").filter(l => l.includes("|"));
   if (lines.length < 2) return null;
   const parse = l => l.split("|").map(c => c.trim()).filter((c, i, a) => i > 0 && i < a.length - 1);
-  const headers = parse(lines[0]);
-  const rows = lines.slice(2).map(parse).filter(r => r.length);
-  return { headers, rows };
+  return { headers: parse(lines[0]), rows: lines.slice(2).map(parse).filter(r => r.length) };
 }
-function parseSupplementsFull(body) {
-  return (body || "").split("\n")
-    .map(l => l.replace(/^[-•*·●▪▸►\d.]+\s*/, "").replace(/\*\*/g, "").trim())
+function parseSuppsFull(body) {
+  return (body || "").split("\n").map(l => l.replace(/^[-•*·●▪▸►\d.]+\s*/, "").replace(/\*\*/g, "").trim())
     .filter(l => l.length > 2 && l.length < 140).slice(0, 8)
-    .map(l => { const parts = l.split(/\s[—–-]\s|:\s/); return { name: (parts[0] || l).trim(), reason: parts.slice(1).join(" ").trim() }; });
+    .map(l => { const p = l.split(/\s[—–-]\s|:\s/); return { name: (p[0] || l).trim(), reason: p.slice(1).join(" ").trim() }; });
 }
-function parsePhases(body) {
+function parsePhasesForPdf(body) {
   const phases = ["Menstrual", "Folicular", "Ovulatoria", "Lútea"];
   const out = {};
   phases.forEach(p => {
@@ -111,9 +100,8 @@ function parsePhases(body) {
       const f = block.match(r); return f ? f[1].trim() : "";
     };
     out[p] = {
-      mood: field("Estado de ánimo"), energy: field("Energía"), foods: field("Mejores alimentos"),
-      training: field("Entrenamiento"), sleep: field("Sueño"), supps: field("Suplementos"),
-      tip: field("Tip"), menu: field("Menú"),
+      energy: field("Energía"), foods: field("Mejores alimentos"), training: field("Entrenamiento"),
+      supps: field("Suplementos"), tip: field("Consejo") || field("Tip"), menu: field("Menú"),
     };
   });
   return out;
@@ -124,7 +112,6 @@ const PHASE_META = {
   Ovulatoria: { days: "Días 14–16", color: "#cfa24e", soft: "#f7f0df", label: "Fase ovulatoria" },
   "Lútea": { days: "Días 17–28", color: "#8480a6", soft: "#efeef4", label: "Fase lútea" },
 };
-
 function GuidePage({ children, footer }) {
   return (
     <div className="pdfpage" style={{ width: 1123, minHeight: 794, background: "#fff", boxSizing: "border-box", padding: "48px 56px", position: "relative", fontFamily: "'Segoe UI', system-ui, sans-serif", color: C.text, overflow: "hidden" }}>
@@ -135,7 +122,6 @@ function GuidePage({ children, footer }) {
     </div>
   );
 }
-
 function PdfGuide({ planData, includeCycle }) {
   if (!planData) return null;
   const { raw, metrics, userProfile, isFemale, phaseInfo, routineText } = planData;
@@ -150,30 +136,26 @@ function PdfGuide({ planData, includeCycle }) {
   const ciclo = findSec(secs, ["ciclo", "femenin", "hormonal"]);
   const menu = dieta ? parseMenuTable(dieta.body) : null;
   const goals = metas ? parseGoals(metas.body) : [];
-  const supps = supl ? parseSupplementsFull(supl.body) : [];
+  const supps = supl ? parseSuppsFull(supl.body) : [];
   const tips = gluc ? parseTips(gluc.body) : [];
   const facts = datos ? parseFacts(datos.body).slice(0, 6) : [];
-  const phases = (isFemale && ciclo) ? parsePhases(ciclo.body) : {};
+  const phases = (isFemale && ciclo) ? parsePhasesForPdf(ciclo.body) : {};
   const goal = userProfile?.goal || "";
   const today = new Date().toLocaleDateString("es-MX");
   const showCycle = isFemale && includeCycle && ciclo;
   const phaseOrder = ["Menstrual", "Folicular", "Ovulatoria", "Lútea"];
-  const goalIsLoss = goal.toLowerCase().includes("peso") || goal.toLowerCase().includes("bajar");
-  const goalIsGain = goal.toLowerCase().includes("músculo") || goal.toLowerCase().includes("ganar");
-  const objetivo = goalIsLoss ? (m.tdee - 400) : goalIsGain ? (m.tdee + 300) : m.tdee;
+  const gl = goal.toLowerCase();
+  const objetivo = (gl.includes("peso") || gl.includes("bajar")) ? (m.tdee - 400) : (gl.includes("músculo") || gl.includes("ganar")) ? (m.tdee + 300) : m.tdee;
   const tiles = [
     { emoji: "⚖️", value: m.bmi, label: "IMC", sub: m.bmiCategory },
     { emoji: "🔥", value: m.bmr, label: "Metabolismo basal", sub: "kcal/día" },
     { emoji: "⚡", value: m.tdee, label: "Gasto total (TDEE)", sub: "kcal/día" },
     { emoji: "💪", value: `${m.smm} kg`, label: "Masa muscular", sub: "Fórmula de Lee" },
-    { emoji: "🦴", value: `${m.lbm} kg`, label: "Masa magra", sub: "Fórmula de Boer" },
-    { emoji: "🧈", value: `${m.fatMass} kg`, label: "Masa grasa", sub: `${m.fatPct}%` },
-    { emoji: "📐", value: m.smi, label: "Índice muscular", sub: "kg/m²" },
+    { emoji: "🦴", value: `${m.lbm} kg`, label: "Masa magra", sub: "Fórmula de Hume" },
+    { emoji: "📉", value: `${m.fatPct}%`, label: "Grasa corporal", sub: "estimado" },
   ];
-
   return (
     <div id="pdf-guide" style={{ position: "absolute", left: -99999, top: 0 }}>
-      {/* PÁGINA 1 · Portada + Análisis */}
       <GuidePage footer="Portada · Análisis">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
           <div>
@@ -203,10 +185,9 @@ function PdfGuide({ planData, includeCycle }) {
           </div>
         </div>
         {analisis && <div style={{ fontSize: 14, lineHeight: 1.7, color: C.text, background: "#faf8f2", borderRadius: 12, padding: "16px 20px", marginBottom: 16, whiteSpace: "pre-line" }}>{plain(analisis.body)}</div>}
-        <div style={{ fontSize: 11, color: C.muted, fontStyle: "italic", lineHeight: 1.5 }}>📚 Fuentes: IMC (OMS) · Metabolismo basal Mifflin-St Jeor (1990) · Masa muscular Lee et al. (2000) · Masa magra Boer (1984) · Índice muscular Janssen (2000). Todos los valores son aproximados; para cifras precisas consulta a un profesional.</div>
+        <div style={{ fontSize: 11, color: C.muted, fontStyle: "italic", lineHeight: 1.5 }}>📚 Fuentes: IMC (OMS) · Metabolismo basal Mifflin-St Jeor (1990) · Masa muscular Lee et al. (2000) · Masa magra Hume (1966). Valores aproximados; para cifras precisas consulta a un profesional.</div>
       </GuidePage>
 
-      {/* PÁGINA 2 · Menú */}
       {menu && (
         <GuidePage footer="Plan de alimentación">
           <div style={{ fontSize: 21, fontWeight: 800, color: C.primary, marginBottom: 16 }}>🍽️ Tu plan de alimentación</div>
@@ -218,11 +199,10 @@ function PdfGuide({ planData, includeCycle }) {
               </tr>
             ))}</tbody>
           </table>
-          <div style={{ marginTop: 16, fontSize: 11, color: C.muted, fontStyle: "italic" }}>📚 Fuentes: Harvard T.H. Chan — The Nutrition Source · Modelo del Plato Saludable de Harvard · OMS. Todas las opciones se preparan en ~15 min.</div>
+          <div style={{ marginTop: 16, fontSize: 11, color: C.muted, fontStyle: "italic" }}>📚 Fuentes: Harvard T.H. Chan — The Nutrition Source · Modelo del Plato Saludable de Harvard · OMS.</div>
         </GuidePage>
       )}
 
-      {/* PÁGINA 3 · Metas + Suplementos + Glucosa */}
       <GuidePage footer="Metas · Suplementos · Glucosa">
         <div style={{ fontSize: 21, fontWeight: 800, color: C.primary, marginBottom: 18 }}>🎯 Tus metas y apoyos</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
@@ -244,7 +224,7 @@ function PdfGuide({ planData, includeCycle }) {
                 {s.reason ? <span style={{ color: C.muted, fontSize: 12 }}> — {s.reason}</span> : null}
               </div>
             ))}
-            <div style={{ fontSize: 10.5, color: C.muted, fontStyle: "italic", marginTop: 8 }}>📚 NIH Office of Dietary Supplements · American Thyroid Association. Consulta a tu médico antes de suplementar.</div>
+            <div style={{ fontSize: 10.5, color: C.muted, fontStyle: "italic", marginTop: 8 }}>📚 NIH Office of Dietary Supplements. Consulta a tu médico antes de suplementar.</div>
           </div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.primary, marginBottom: 10 }}>📈 Evitar picos de glucosa</div>
@@ -258,7 +238,6 @@ function PdfGuide({ planData, includeCycle }) {
         </div>
       </GuidePage>
 
-      {/* PÁGINA 4 · Datos + Hábitos */}
       <GuidePage footer="Datos · Hábitos">
         <div style={{ fontSize: 21, fontWeight: 800, color: C.primary, marginBottom: 18 }}>💡 Datos que te ayudan & hábitos diarios</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
@@ -269,11 +248,11 @@ function PdfGuide({ planData, includeCycle }) {
                 <span style={{ color: C.yellow, flexShrink: 0 }}>★</span><span>{plain(f)}</span>
               </div>
             ))}
-            <div style={{ fontSize: 10.5, color: C.muted, fontStyle: "italic", marginTop: 8 }}>📚 Your Brain on Food (Uma Naidoo, MD) · Intuitive Eating (Tribole & Resch).</div>
+            <div style={{ fontSize: 10.5, color: C.muted, fontStyle: "italic", marginTop: 8 }}>📚 Your Brain on Food (Uma Naidoo) · Intuitive Eating (Tribole & Resch).</div>
           </div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.primary, marginBottom: 10 }}>✅ Hábitos diarios</div>
-            {["Toma tu medicamento/suplementos como te corresponde", "Hidrátate a lo largo del día", "Proteína en cada comida", "Muévete y camina tus pasos", "Duerme 7–9 horas", "Sol por la mañana", "Entrenamiento de fuerza en tu semana", "Verdura presente en comida y cena"].map((h, i) => (
+            {["Toma tu medicamento/suplementos como te corresponde", "Hidrátate a lo largo del día", "Proteína en cada comida", "Muévete y camina tus pasos", "Duerme 7–9 horas", "Sol por la mañana", "Entrenamiento de fuerza en tu semana", "Verdura en comida y cena"].map((h, i) => (
               <div key={i} style={{ display: "flex", gap: 9, marginBottom: 8, fontSize: 12.5, alignItems: "center" }}>
                 <span style={{ width: 14, height: 14, border: `1.5px solid ${C.accent}`, borderRadius: 4, display: "inline-block", flexShrink: 0 }} /><span>{h}</span>
               </div>
@@ -281,11 +260,10 @@ function PdfGuide({ planData, includeCycle }) {
           </div>
         </div>
         <div style={{ marginTop: 22, background: C.light, borderRadius: 12, padding: "14px 18px", fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
-          <strong style={{ color: C.primary }}>Nota:</strong> esta guía es educativa y de organización personal. Acompaña tu tratamiento médico, sin sustituirlo. Cualquier ajuste de medicamento o suplemento se revisa con tu profesional de salud.
+          <strong style={{ color: C.primary }}>Nota:</strong> esta guía es educativa y de organización personal. Acompaña tu tratamiento médico, sin sustituirlo.
         </div>
       </GuidePage>
 
-      {/* PÁGINA · Rutina (si ya se generó) */}
       {routineText && (
         <GuidePage footer="Tu rutina">
           <div style={{ fontSize: 21, fontWeight: 800, color: C.primary, marginBottom: 14 }}>🏋️ Tu rutina de entrenamiento</div>
@@ -302,11 +280,10 @@ function PdfGuide({ planData, includeCycle }) {
         </GuidePage>
       )}
 
-      {/* PÁGINAS · Ciclo (una por fase) */}
       {showCycle && phaseOrder.map(p => {
         const ph = phases[p]; if (!ph) return null;
         const pm = PHASE_META[p];
-        const fields = [["Estado de ánimo", ph.mood], ["Energía", ph.energy], ["Mejores alimentos", ph.foods], ["Entrenamiento", ph.training], ["Sueño", ph.sleep], ["Suplementos", ph.supps]].filter(x => x[1]);
+        const fields = [["Energía", ph.energy], ["Mejores alimentos", ph.foods], ["Entrenamiento", ph.training], ["Suplementos", ph.supps]].filter(x => x[1]);
         return (
           <GuidePage key={p} footer={pm.label}>
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
@@ -335,7 +312,7 @@ function PdfGuide({ planData, includeCycle }) {
                 </div>
               </div>
             )}
-            {ph.tip && <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.5 }}><strong style={{ color: C.primary }}>💡 Tip:</strong> {plain(ph.tip)}</div>}
+            {ph.tip && <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.5 }}><strong style={{ color: C.primary }}>💡 Consejo:</strong> {plain(ph.tip)}</div>}
           </GuidePage>
         );
       })}
@@ -343,40 +320,57 @@ function PdfGuide({ planData, includeCycle }) {
   );
 }
 
-
-
+// ---- Fórmulas clínicas (calculadas localmente, no por IA) ----
 function calcBodyMetrics(form) {
   let weightKg = parseFloat(form.weight);
   let heightCm = parseFloat(form.height);
   const age = parseFloat(form.age);
   const isMale = form.sex === "masculino";
+
   if (form.weightUnit === "lbs") weightKg = weightKg * 0.453592;
   if (form.heightUnit === "in") heightCm = heightCm * 2.54;
+
   const heightM = heightCm / 100;
+
+  // IMC (OMS)
   const bmi = weightKg / (heightM * heightM);
   let bmiCategory = "";
   if (bmi < 18.5) bmiCategory = "Bajo peso";
   else if (bmi < 25) bmiCategory = "Peso normal";
   else if (bmi < 30) bmiCategory = "Sobrepeso";
   else bmiCategory = "Obesidad";
+
+  // BMR - Mifflin-St Jeor
   const bmr = isMale
     ? (10 * weightKg) + (6.25 * heightCm) - (5 * age) + 5
     : (10 * weightKg) + (6.25 * heightCm) - (5 * age) - 161;
+
+  // TDEE
   const activityMultipliers = { "0": 1.2, "1-2": 1.375, "3-4": 1.55, "5+": 1.725 };
   const tdee = bmr * (activityMultipliers[form.exercise] || 1.375);
+
+  // Masa muscular esquelética - Fórmula de Lee (2000)
   const sexFactor = isMale ? 1 : 0;
   const smm = (0.244 * weightKg) + (7.80 * heightM) - (0.098 * age) + (6.6 * sexFactor) - 3.3;
+
+  // Masa corporal magra - Fórmula de Hume
   const lbm = isMale
-    ? (0.407 * weightKg) + (0.267 * heightCm) - 19.2
-    : (0.252 * weightKg) + (0.473 * heightCm) - 48.3;
-  const fatMass = weightKg - lbm;
-  const fatPct = (fatMass / weightKg) * 100;
-  const smi = smm / (heightM * heightM);
+    ? (0.32810 * weightKg) + (0.33929 * heightCm) - 29.5336
+    : (0.29569 * weightKg) + (0.41813 * heightCm) - 43.2933;
+
+  // Porcentaje de grasa estimado
+  const fatPct = ((weightKg - lbm) / weightKg) * 100;
+
   return {
-    bmi: bmi.toFixed(1), bmiCategory, bmr: Math.round(bmr), tdee: Math.round(tdee),
-    smm: Math.max(0, smm).toFixed(1), lbm: Math.max(0, lbm).toFixed(1),
-    fatMass: Math.max(0, fatMass).toFixed(1), fatPct: Math.max(0, Math.min(60, fatPct)).toFixed(1),
-    smi: Math.max(0, smi).toFixed(1), weightKg: weightKg.toFixed(1), heightCm: heightCm.toFixed(1),
+    bmi: bmi.toFixed(1),
+    bmiCategory,
+    bmr: Math.round(bmr),
+    tdee: Math.round(tdee),
+    smm: Math.max(0, smm).toFixed(1),
+    lbm: Math.max(0, lbm).toFixed(1),
+    fatPct: Math.max(0, Math.min(60, fatPct)).toFixed(1),
+    weightKg: weightKg.toFixed(1),
+    heightCm: heightCm.toFixed(1),
   };
 }
 
@@ -398,53 +392,45 @@ function PrivacyBadge() {
   );
 }
 
-function MetricCard({ emoji, label, value, sub, explanation }) {
-  const [showInfo, setShowInfo] = useState(false);
-  return (
-    <div style={{ background: C.light, borderRadius: 14, padding: "14px", textAlign: "center" }}>
-      <div style={{ fontSize: 24, marginBottom: 4 }}>{emoji}</div>
-      <div style={{ fontWeight: 700, fontSize: 20, color: C.primary }}>{value}</div>
-      <div style={{ fontSize: 12, color: C.muted }}>{label}</div>
-      <div style={{ fontSize: 11, color: C.accent }}>{sub}</div>
-      <button onClick={() => setShowInfo(o => !o)} style={{ background: "none", border: "none", color: C.accent, fontSize: 11, cursor: "pointer", padding: "4px 0 0", textDecoration: "underline" }}>
-        {showInfo ? "Ocultar" : "¿Qué es esto?"}
-      </button>
-      {showInfo && <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>{explanation}</div>}
-    </div>
-  );
-}
-
 function BodyAnalysisCard({ metrics, goal }) {
   const goalIsLoss = goal?.toLowerCase().includes("peso") || goal?.toLowerCase().includes("bajar");
   const goalIsGain = goal?.toLowerCase().includes("músculo") || goal?.toLowerCase().includes("ganar");
+
   let tdeeAdjusted = metrics.tdee;
   let tdeeNote = "";
   if (goalIsLoss) { tdeeAdjusted = metrics.tdee - 400; tdeeNote = "Déficit moderado de ~400 kcal para pérdida de grasa sostenible"; }
   else if (goalIsGain) { tdeeAdjusted = metrics.tdee + 300; tdeeNote = "Superávit de ~300 kcal para ganancia muscular limpia"; }
   else { tdeeNote = "Mantenimiento calórico para tu nivel de actividad"; }
 
-  const items = [
-    { emoji: "⚖️", label: "IMC", value: metrics.bmi, sub: metrics.bmiCategory, explanation: "El Índice de Masa Corporal mide la relación entre tu peso y tu altura para estimar si estás en un rango saludable." },
-    { emoji: "🔥", label: "Metabolismo basal", value: `${metrics.bmr}`, sub: "kcal/día", explanation: "Son las calorías que tu cuerpo quema en reposo total, solo para mantenerte vivo (respirar, latir, etc.)." },
-    { emoji: "⚡", label: "Gasto total (TDEE)", value: `${metrics.tdee}`, sub: "kcal/día", explanation: "Son las calorías totales que quemas al día incluyendo tu actividad física y ejercicio." },
-    { emoji: "💪", label: "Masa muscular", value: `${metrics.smm} kg`, sub: "Fórmula de Lee", explanation: "Es la cantidad estimada de músculo esquelético en tu cuerpo, el que usas para moverte y hacer ejercicio." },
-    { emoji: "🦴", label: "Masa magra total", value: `${metrics.lbm} kg`, sub: "Fórmula de Boer", explanation: "Es todo lo que NO es grasa en tu cuerpo: músculos, huesos, órganos y agua." },
-    { emoji: "🧈", label: "Masa grasa", value: `${metrics.fatMass} kg`, sub: `${metrics.fatPct}% grasa`, explanation: "Es la cantidad de grasa corporal estimada. Algo de grasa es necesaria para funciones vitales." },
-    { emoji: "📐", label: "Índice muscular (SMI)", value: `${metrics.smi}`, sub: "kg/m²", explanation: "Compara tu masa muscular con tu altura. Sirve para saber si tienes suficiente músculo para tu tamaño." },
-  ];
-
   return (
     <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
-      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 14 }}>📊 Análisis aproximado de tu cuerpo</div>
+      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 14 }}>📊 Análisis de tu cuerpo</div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 16 }}>
-        {items.map((m, i) => <MetricCard key={i} {...m} />)}
+        {[
+          { emoji: "⚖️", label: "IMC", value: metrics.bmi, sub: metrics.bmiCategory },
+          { emoji: "🔥", label: "Metabolismo basal", value: `${metrics.bmr}`, sub: "kcal/día" },
+          { emoji: "⚡", label: "Gasto total (TDEE)", value: `${metrics.tdee}`, sub: "kcal/día" },
+          { emoji: "💪", label: "Masa muscular", value: `${metrics.smm}`, sub: "kg (Lee)" },
+          { emoji: "🦴", label: "Masa magra", value: `${metrics.lbm}`, sub: "kg (Hume)" },
+          { emoji: "📉", label: "Grasa corporal est.", value: `${metrics.fatPct}%`, sub: "estimado" },
+        ].map((m, i) => (
+          <div key={i} style={{ background: C.light, borderRadius: 14, padding: "14px", textAlign: "center" }}>
+            <div style={{ fontSize: 24, marginBottom: 4 }}>{m.emoji}</div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: C.primary }}>{m.value}</div>
+            <div style={{ fontSize: 12, color: C.muted }}>{m.label}</div>
+            <div style={{ fontSize: 11, color: C.accent }}>{m.sub}</div>
+          </div>
+        ))}
       </div>
+
       <div style={{ background: C.light, borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: C.primary }}>🎯 Tu objetivo calórico: ~{Math.round(tdeeAdjusted)} kcal/día</div>
         <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>{tdeeNote}</div>
       </div>
+
       <div style={sourceStyle}>
-        📚 <strong>Fuentes:</strong> IMC: estándares OMS | Metabolismo basal: Mifflin-St Jeor (1990), <em>Am J Clin Nutr</em> | Masa muscular: Lee RC et al. (2000), <em>Am J Clin Nutr</em> | Masa magra: Boer P. (1984), <em>Am J Physiology</em> | Masa grasa: Heymsfield SB, <em>Human Body Composition</em> | Índice muscular: Janssen I. (2000), <em>J Appl Physiol</em>
+        📚 <strong>Fuentes:</strong> IMC según estándares OMS | Metabolismo basal: Mifflin-St Jeor (1990), <em>Am J Clin Nutr</em> | Masa muscular: Lee RC et al. (2000), <em>Am J Clin Nutr</em> | Masa magra: Hume R. (1966), <em>J Clin Path</em>
       </div>
     </div>
   );
@@ -454,15 +440,20 @@ function LearnMore({ prompt }) {
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+
   const load = async () => {
     if (info) { setOpen(o => !o); return; }
     setOpen(true); setLoading(true);
     try {
-      const text = await callAI(`En 3-4 oraciones, explica de manera simple y amigable en español latinoamericano: ${prompt}. Enfócate en los beneficios prácticos para la salud y el bienestar. Usa un lenguaje que cualquier persona entienda.`, 300);
+      const text = await callAI(
+        `En 3-4 oraciones, explica de manera simple y amigable en español latinoamericano: ${prompt}. Enfócate en los beneficios prácticos para la salud y el bienestar. Usa un lenguaje que cualquier persona entienda.`,
+        300
+      );
       setInfo(text);
     } catch { setInfo("No se pudo cargar la información. Intenta de nuevo."); }
     setLoading(false);
   };
+
   return (
     <div style={{ marginTop: 6 }}>
       <button onClick={load} style={{ background: "none", border: "none", color: C.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
@@ -485,9 +476,6 @@ function FunFact({ facts }) {
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: C.primary }}>💡 ¿Sabías que...?</div>
         <div style={{ fontSize: 15, lineHeight: 1.7 }}>{facts[idx]}</div>
-        <div style={{ ...sourceStyle, marginTop: 12 }}>
-          📚 <strong>Fuentes:</strong> Uma Naidoo, MD — <em>Your Brain on Food</em> | Hipócrates: "Toda enfermedad comienza en el intestino" | Evelyn Tribole & Elyse Resch — <em>Intuitive Eating</em>
-        </div>
       </div>
       <button onClick={() => setIdx(i => (i + 1) % facts.length)}
         style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontSize: 18, flexShrink: 0 }} title="Otro dato">🔀</button>
@@ -498,6 +486,7 @@ function FunFact({ facts }) {
 function CycleCalendar({ onPhaseCalc }) {
   const [lastPeriod, setLastPeriod] = useState("");
   const [cycleLen, setCycleLen] = useState(28);
+
   useEffect(() => {
     if (!lastPeriod) return;
     const start = new Date(lastPeriod);
@@ -511,17 +500,20 @@ function CycleCalendar({ onPhaseCalc }) {
     else { phase = "Lútea"; days = `Día ${dayInCycle - 16} de ${cycleLen - 16}`; }
     onPhaseCalc({ phase, dayInCycle, days, cycleLen });
   }, [lastPeriod, cycleLen]);
+
   return (
     <div style={{ background: C.pinkLight, borderRadius: 14, padding: "18px 20px", marginBottom: 14 }}>
       <div style={{ fontWeight: 700, color: C.primary, marginBottom: 10, fontSize: 15 }}>🗓️ Registra tu ciclo</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div>
           <label style={labelStyle}>Primer día de tu última menstruación</label>
-          <input type="date" style={inputStyle} value={lastPeriod} onChange={e => setLastPeriod(e.target.value)} max={new Date().toISOString().split("T")[0]} />
+          <input type="date" style={inputStyle} value={lastPeriod} onChange={e => setLastPeriod(e.target.value)}
+            max={new Date().toISOString().split("T")[0]} />
         </div>
         <div>
           <label style={labelStyle}>Duración promedio de tu ciclo (días)</label>
-          <input type="number" style={inputStyle} value={cycleLen} min={21} max={40} onChange={e => setCycleLen(Number(e.target.value))} />
+          <input type="number" style={inputStyle} value={cycleLen} min={21} max={40}
+            onChange={e => setCycleLen(Number(e.target.value))} />
         </div>
       </div>
     </div>
@@ -542,21 +534,39 @@ function WorkoutRoutineChooser({ userProfile, onRoutine }) {
   const [type, setType] = useState(null);
   const [routine, setRoutine] = useState("");
   const [loading, setLoading] = useState(false);
+
   const types = ["🏋️ Gimnasio", "🏃 Cardio", "🧘 Pilates", "🏠 En casa", "⚡ HIIT", "🚴 Ciclismo"];
+
   const fetchRoutine = async (t) => {
     setType(t); setLoading(true); setRoutine("");
     try {
-      const text = await callAI(`Crea una rutina semanal de ${t.replace(/[^\w ]/g, "").trim()} en español latinoamericano para alguien que entrena ${userProfile.exercise} días por semana, pesa ${userProfile.weight}${userProfile.weightUnit}, y su meta es: ${userProfile.goal}.\n\nFORMATO OBLIGATORIO: Usa bullet points simples. Para cada día escribe:\n**Día X - [Enfoque]**\n- Ejercicio 1: series × repeticiones (o duración)\n- Ejercicio 2: series × repeticiones (o duración)\n- Descanso entre series: X segundos\n\nIncluye de 4-6 ejercicios por día. Nivel principiante-intermedio.\nAl final agrega una línea: "📚 Basado en lineamientos ACSM (American College of Sports Medicine)"\nSolo la rutina, sin texto introductorio.`, 800);
+      const text = await callAI(
+        `Crea una rutina semanal de ${t.replace(/[^\w ]/g, "").trim()} en español latinoamericano para alguien que entrena ${userProfile.exercise} días por semana, pesa ${userProfile.weight}${userProfile.weightUnit}, y su meta es: ${userProfile.goal}.
+
+FORMATO OBLIGATORIO: Usa bullet points simples. Para cada día escribe:
+**Día X - [Enfoque]**
+- Ejercicio 1: series × repeticiones (o duración)
+- Ejercicio 2: series × repeticiones (o duración)
+- Descanso entre series: X segundos
+
+Incluye de 4-6 ejercicios por día. Nivel principiante-intermedio.
+Al final agrega una línea: "📚 Basado en lineamientos ACSM (American College of Sports Medicine)"
+Solo la rutina, sin texto introductorio.`,
+        800
+      );
       setRoutine(text);
       if (onRoutine) onRoutine(text);
     } catch { setRoutine("No se pudo cargar la rutina. Intenta de nuevo."); }
     setLoading(false);
   };
+
   return (
     <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
       <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>🏋️ Elige tu estilo de entrenamiento</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        {types.map(t => <button key={t} style={btnOutline(type === t)} onClick={() => fetchRoutine(t)}>{t}</button>)}
+        {types.map(t => (
+          <button key={t} style={btnOutline(type === t)} onClick={() => fetchRoutine(t)}>{t}</button>
+        ))}
       </div>
       {loading && <div style={{ color: C.muted, fontSize: 14 }}>⏳ Creando tu rutina...</div>}
       {routine && <div style={{ fontSize: 14, lineHeight: 1.8 }}>{renderText(routine)}</div>}
@@ -568,78 +578,25 @@ function MarkdownTable({ text }) {
   const lines = text.split("\n").filter(l => l.trim());
   const tableLines = lines.filter(l => l.includes("|"));
   if (tableLines.length < 2) return <div style={{ fontSize: 14, lineHeight: 1.7 }}>{text}</div>;
+
   const parse = l => l.split("|").map(c => c.trim()).filter((c, i, a) => i > 0 && i < a.length - 1);
   const headers = parse(tableLines[0]);
   const rows = tableLines.slice(2).map(parse);
+
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-        <thead><tr>{headers.map((h, i) => <th key={i} style={{ background: C.primary, color: "#fff", padding: "8px 12px", textAlign: "left", fontWeight: 700 }}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((row, i) => (
-          <tr key={i} style={{ background: i % 2 === 0 ? C.light : "#fff" }}>
-            {row.map((cell, j) => <td key={j} style={{ padding: "8px 12px", borderBottom: "1px solid #dde8d8", color: C.text }}>{cell}</td>)}
-          </tr>
-        ))}</tbody>
+        <thead>
+          <tr>{headers.map((h, i) => <th key={i} style={{ background: C.primary, color: "#fff", padding: "8px 12px", textAlign: "left", fontWeight: 700 }}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} style={{ background: i % 2 === 0 ? C.light : "#fff" }}>
+              {row.map((cell, j) => <td key={j} style={{ padding: "8px 12px", borderBottom: "1px solid #dde8d8", color: C.text }}>{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
       </table>
-    </div>
-  );
-}
-
-function FudnFuelChat({ userProfile }) {
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(false);
-  const examples = [
-    "¿Qué es el kéfir y por qué lo debería tomar?",
-    "¿Cuántas horas debería dormir?",
-    "¿Cuánto café debería tomar y a qué hora?",
-    "¿Qué puedo cenar si tengo antojo de dulce?",
-    "¿Es malo comer después de las 8pm?",
-    "¿Qué snacks saludables puedo comer en la oficina?",
-  ];
-  const ask = async (q) => {
-    const query = q || question;
-    if (!query.trim()) return;
-    setQuestion(query); setLoading(true); setAnswer("");
-    try {
-      const text = await callAI(`Eres un coach de bienestar experto. Un usuario con este perfil te hace una pregunta:
-- Meta: ${userProfile?.goal || "estar saludable"}
-- Edad: ${userProfile?.age || "adulto"}
-- Sexo: ${userProfile?.sex || "no especificado"}
-
-Pregunta: "${query}"
-
-Responde en español latinoamericano, de forma simple y amigable en 3-5 oraciones. Al final incluye la fuente o referencia científica de tu respuesta (nombre del estudio, libro, o institución). Formato: "📚 Fuente: [referencia]"`, 400);
-      setAnswer(text);
-    } catch { setAnswer("No se pudo obtener respuesta. Intenta de nuevo."); }
-    setLoading(false);
-  };
-  return (
-    <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
-      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 8 }}>💬 Pregúntale a FudnFuel</div>
-      <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Hazme cualquier pregunta sobre nutrición, ejercicio o bienestar</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-        {examples.map((ex, i) => (
-          <button key={i} onClick={() => ask(ex)}
-            style={{ background: C.light, border: `1px solid #b8ccaa`, borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.primary, cursor: "pointer", fontWeight: 500 }}>
-            {ex}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input style={{ ...inputStyle, flex: 1 }} placeholder="Escribe tu pregunta..."
-          value={question} onChange={e => setQuestion(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && ask()} />
-        <button onClick={() => ask()} style={{ ...btnPrimary, padding: "10px 20px", borderRadius: 10 }}>
-          {loading ? "..." : "Preguntar"}
-        </button>
-      </div>
-      {loading && <div style={{ color: C.muted, fontSize: 14, marginTop: 12 }}>🔍 Buscando respuesta...</div>}
-      {answer && (
-        <div style={{ marginTop: 14, padding: "14px 16px", background: C.light, borderRadius: 12, fontSize: 14, lineHeight: 1.7, color: C.text }}>
-          {answer}
-        </div>
-      )}
     </div>
   );
 }
@@ -652,8 +609,11 @@ function parseAndRenderPlan(planData) {
   while ((match = sectionRegex.exec(raw)) !== null) {
     sections.push({ title: match[1].trim(), body: match[2].trim() });
   }
+
   return sections.map((sec, idx) => {
     const t = sec.title.toLowerCase();
+
+    // Skip AI body analysis — we render our own BodyAnalysisCard
     if (t.includes("análisis") || t.includes("analisis") || t.includes("cuerpo")) return null;
 
     if (t.includes("dieta") || t.includes("alimenta") || t.includes("comida") || t.includes("plan nutri")) return (
@@ -661,12 +621,16 @@ function parseAndRenderPlan(planData) {
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
         <MarkdownTable text={extractTable(sec.body)} />
         {extractNonTable(sec.body) && <div style={{ marginTop: 12, fontSize: 14, lineHeight: 1.7 }}>{renderText(extractNonTable(sec.body))}</div>}
-        <div style={sourceStyle}>📚 <strong>Fuentes:</strong> Harvard T.H. Chan School of Public Health — The Nutrition Source | Modelo del Plato Saludable de Harvard | OMS — Directrices sobre alimentación saludable</div>
+        <div style={sourceStyle}>
+          📚 <strong>Fuentes:</strong> Harvard T.H. Chan School of Public Health — The Nutrition Source | Modelo del Plato Saludable de Harvard | OMS — Directrices sobre alimentación saludable
+        </div>
       </div>
     );
+
     if (t.includes("entrenamiento") || t.includes("ejercicio") || t.includes("rutina")) return (
       <div key={idx}><WorkoutRoutineChooser userProfile={userProfile} onRoutine={planData.onRoutine} /></div>
     );
+
     if (t.includes("meta") || t.includes("objetivo") || t.includes("diaria") || t.includes("diario")) return (
       <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${C.yellow}` }}>
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
@@ -681,6 +645,7 @@ function parseAndRenderPlan(planData) {
         </div>
       </div>
     );
+
     if (t.includes("suplemento") || t.includes("vitamina")) return (
       <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${C.yellow}` }}>
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
@@ -693,21 +658,33 @@ function parseAndRenderPlan(planData) {
         ))}
       </div>
     );
+
     if (t.includes("glucosa") || t.includes("pico") || t.includes("azúcar") || t.includes("azucar")) return (
       <div key={idx} style={{ ...cardStyle, borderLeft: "4px solid #e07a5f" }}>
-        <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>📈 Cómo Evitar Picos de Glucosa</div>
+        <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 12 }}>{sec.title}</div>
         {parseTips(sec.body).map((tip, i) => (
           <div key={i} style={{ background: C.light, borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>📈 {tip}</div>
+            <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6 }}>🩸 {tip}</div>
             <LearnMore prompt={`este consejo para controlar la glucosa según el método de Glucose Goddess (Jessie Inchauspé): "${tip}". Explícalo de forma muy simple.`} />
           </div>
         ))}
-        <div style={sourceStyle}>📚 <strong>Fuente:</strong> Jessie Inchauspé — <em>Glucose Revolution</em> (Glucose Goddess) | Principios basados en investigación sobre picos de glucosa y su impacto en energía, antojos y salud metabólica.</div>
+        <div style={sourceStyle}>
+          📚 <strong>Fuente:</strong> Jessie Inchauspé — <em>Glucose Revolution</em> (Glucose Goddess) | Principios basados en investigación sobre picos de glucosa y su impacto en energía, antojos y salud metabólica.
+        </div>
       </div>
     );
+
     if (t.includes("dato") || t.includes("curiosidad") || t.includes("sabías") || t.includes("lección") || t.includes("leccion")) {
-      return <FunFact key={idx} facts={parseFacts(sec.body)} />;
+      return (
+        <div key={idx}>
+          <FunFact facts={parseFacts(sec.body)} />
+          <div style={sourceStyle}>
+            📚 <strong>Fuentes:</strong> Uma Naidoo, MD — <em>Your Brain on Food</em> (conexión intestino-cerebro) | Hipócrates: "Toda enfermedad comienza en el intestino" | Evelyn Tribole & Elyse Resch — <em>Intuitive Eating</em> (alimentación intuitiva)
+          </div>
+        </div>
+      );
     }
+
     if (t.includes("ciclo") || t.includes("femenin") || t.includes("hormonal")) {
       return (
         <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${C.pink}` }}>
@@ -722,6 +699,7 @@ function parseAndRenderPlan(planData) {
         </div>
       );
     }
+
     return (
       <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
         <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 10 }}>{sec.title}</div>
@@ -734,19 +712,23 @@ function parseAndRenderPlan(planData) {
 function CyclePhaseContent({ body, currentPhase }) {
   const phases = ["Menstrual", "Folicular", "Ovulatoria", "Lútea"];
   const [activePhase, setActivePhase] = useState(currentPhase || "Menstrual");
+
   const phaseBlocks = {};
   phases.forEach(p => {
     const re = new RegExp(`###\\s+(?:Fase\\s+)?${p}[\\s\\S]*?(?=###\\s+|$)`, "i");
     const m = body.match(re);
     if (m) phaseBlocks[p] = m[0].replace(/###.+\n/, "").trim();
   });
+
   const phaseEmojis = { Menstrual: "🩸", Folicular: "🌱", Ovulatoria: "🌸", Lútea: "🌙" };
   const phaseDays = { Menstrual: "Días 1–5", Folicular: "Días 6–13", Ovulatoria: "Días 14–16", Lútea: "Días 17–28" };
+
   return (
     <div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {phases.map(p => (
-          <button key={p} onClick={() => setActivePhase(p)} style={{ ...btnOutline(activePhase === p), position: "relative" }}>
+          <button key={p} onClick={() => setActivePhase(p)}
+            style={{ ...btnOutline(activePhase === p), position: "relative" }}>
             {phaseEmojis[p]} {p}
             {currentPhase === p && <span style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, background: C.pink, borderRadius: "50%", border: "2px solid white" }} />}
           </button>
@@ -764,9 +746,10 @@ function renderText(text) {
   if (!text) return null;
   return text.split("\n").map((line, i) => {
     line = line.replace(/\*\*(.+?)\*\*/g, (_, m) => `<strong>${m}</strong>`);
-    if (line.startsWith("- ") || line.startsWith("• ") || line.startsWith("· ") || line.startsWith("● ")) return (
-      <div key={i} style={{ marginBottom: 6 }}>
-        <span dangerouslySetInnerHTML={{ __html: line.replace(/^[-•·●▪▸►]\s*/, "") }} />
+    if (line.startsWith("- ") || line.startsWith("• ")) return (
+      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+        <span style={{ color: C.accent, flexShrink: 0, marginTop: 2 }}>●</span>
+        <span dangerouslySetInnerHTML={{ __html: line.slice(2) }} />
       </div>
     );
     if (line.trim() === "") return <div key={i} style={{ height: 5 }} />;
@@ -775,8 +758,12 @@ function renderText(text) {
   });
 }
 
-function extractTable(text) { return text.split("\n").filter(l => l.includes("|")).join("\n"); }
-function extractNonTable(text) { return text.split("\n").filter(l => !l.includes("|")).join("\n").trim(); }
+function extractTable(text) {
+  return text.split("\n").filter(l => l.includes("|")).join("\n");
+}
+function extractNonTable(text) {
+  return text.split("\n").filter(l => !l.includes("|")).join("\n").trim();
+}
 function parseGoals(text) {
   const goals = [];
   const patterns = [
@@ -784,7 +771,10 @@ function parseGoals(text) {
     { re: /(\d+)\s*tazas?/i, label: "Tazas de agua", emoji: "💧" },
     { re: /(\d[\d,]+)\s*pasos?/i, label: "Pasos diarios", emoji: "👣" },
   ];
-  patterns.forEach(({ re, label, emoji }) => { const m = text.match(re); if (m) goals.push({ value: m[1].replace(/,/g, ""), label, emoji }); });
+  patterns.forEach(({ re, label, emoji }) => {
+    const m = text.match(re);
+    if (m) goals.push({ value: m[1].replace(/,/g, ""), label, emoji });
+  });
   if (goals.length === 0) {
     text.split("\n").filter(l => l.trim() && (l.includes("-") || l.includes(":"))).slice(0, 4).forEach((l, i) => {
       const emojis = ["🔥", "💧", "👣", "⏰"];
@@ -797,7 +787,7 @@ function parseSupplements(text) {
   const lines = text.split("\n").filter(l => l.trim());
   const sups = [];
   lines.forEach(l => {
-    const clean = l.replace(/^[-•*·●▪▸►\d.]+\s*/, "").replace(/\*\*/g, "").trim();
+    const clean = l.replace(/^[-•*\d.]\s*/, "").replace(/\*\*/g, "").trim();
     if (clean.length > 2 && clean.length < 80) {
       const name = clean.split(":")[0].split("–")[0].split("-")[0].trim();
       if (name) sups.push({ name });
@@ -806,12 +796,12 @@ function parseSupplements(text) {
   return sups.slice(0, 8);
 }
 function parseTips(text) {
-  return text.split("\n").filter(l => l.trim() && (l.startsWith("-") || l.startsWith("•") || l.startsWith("*") || l.startsWith("·") || /^\d+\./.test(l)))
-    .map(l => l.replace(/^[-•*·●▪▸►\d.]+\s*/, "").replace(/\*\*/g, "").trim()).filter(l => l.length > 10).slice(0, 8);
+  return text.split("\n").filter(l => l.trim() && (l.startsWith("-") || l.startsWith("•") || l.startsWith("*") || /^\d+\./.test(l)))
+    .map(l => l.replace(/^[-•*\d.]\s*/, "").replace(/\*\*/g, "").trim()).filter(l => l.length > 10).slice(0, 8);
 }
 function parseFacts(text) {
-  return text.split("\n").filter(l => l.trim() && (l.startsWith("-") || l.startsWith("•") || l.startsWith("·") || /^\d+\./.test(l)))
-    .map(l => l.replace(/^[-•*·●▪▸►\d.]+\s*/, "").replace(/\*\*/g, "").trim()).filter(l => l.length > 20);
+  return text.split("\n").filter(l => l.trim() && (l.startsWith("-") || l.startsWith("•") || /^\d+\./.test(l)))
+    .map(l => l.replace(/^[-•*\d.]\s*/, "").replace(/\*\*/g, "").trim()).filter(l => l.length > 20);
 }
 
 export default function App() {
@@ -827,6 +817,7 @@ export default function App() {
   const [routineText, setRoutineText] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState("");
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isFemale = form.sex === "femenino";
 
@@ -843,13 +834,11 @@ export default function App() {
     const required = ["age", "weight", "height", "sex", "goal", "diet", "exercise", "water"];
     for (let k of required) { if (!form[k]) { setError("Por favor completa todos los campos obligatorios."); return; } }
     setError(""); setLoading(true); setPlanData(null);
+
     const metrics = calcBodyMetrics(form);
     const goalIsLoss = form.goal?.toLowerCase().includes("peso") || form.goal?.toLowerCase().includes("bajar");
-    const wantsSnacks = form.goal?.toLowerCase().includes("músculo") || form.goal?.toLowerCase().includes("ganar") || /energ[ií]a/i.test(form.goal || "");
 
     const prompt = `Eres un nutricionista profesional, entrenador personal y coach de bienestar. Genera un plan de bienestar personalizado y completo. Responde TODO en español latinoamericano, con un tono cálido, motivador y cercano.
-
-FORMATO CRÍTICO E INDISPENSABLE: cada sección DEBE empezar con "## " (dos numerales seguidos de un espacio) y su título en la MISMA línea, tal como se indica abajo. Dentro de las tablas usa el formato markdown con "|". No uses ningún otro estilo de encabezado. Si no respetas este formato, la respuesta no sirve.
 
 PERFIL DEL USUARIO:
 - Edad: ${form.age} | Sexo: ${form.sex}
@@ -865,10 +854,8 @@ MÉTRICAS YA CALCULADAS (NO las recalcules, solo interprétalas):
 - IMC: ${metrics.bmi} (${metrics.bmiCategory})
 - Metabolismo basal (Mifflin-St Jeor): ${metrics.bmr} kcal/día
 - TDEE: ${metrics.tdee} kcal/día
-- Masa muscular esquelética (Lee, 2000): ${metrics.smm} kg
-- Masa magra total (Boer, 1984): ${metrics.lbm} kg
-- Masa grasa: ${metrics.fatMass} kg (${metrics.fatPct}%)
-- Índice muscular SMI (Janssen, 2000): ${metrics.smi} kg/m²
+- Masa muscular esquelética (Lee): ${metrics.smm} kg
+- Masa magra (Hume): ${metrics.lbm} kg
 
 Genera las siguientes secciones usando ## para los encabezados principales:
 
@@ -877,101 +864,83 @@ Escribe 2-3 oraciones motivacionales interpretando sus métricas. NO recalcules,
 
 ## 🍽️ Plan de Alimentación Personalizado
 Proporciona una tabla markdown con columnas: Comida | Opción A | Opción B | Opción C | Calorías aprox.
-Incluye filas para: Desayuno, Comida y Cena${wantsSnacks ? ", más 1 o 2 Meriendas (porque su meta requiere más energía/volumen)" : " (tres comidas completas, sin meriendas)"}. Cada comida debe ser un platillo completo.
-REGLAS:
-- Cada opción debe ser un PLATILLO COMPLETO, concreto y apetecible que combine 2-4 alimentos que van bien juntos, con porción aproximada (ejemplo de formato: "Omelette de 2 huevos con espinaca, ½ aguacate y queso panela"). NUNCA pongas ingredientes sueltos al azar ni combinaciones raras (evita cosas como "leche entera + cucharada de crema de cacahuate").
-- ADAPTA cada platillo al perfil de ESTA persona: su meta (${form.goal}), lo que describió que come ("${form.diet}"), sus alergias (${form.allergies || "Ninguna"}) y condiciones (${form.conditions || "Ninguna"}). Usa alimentos realistas y apetecibles para ese perfil.
-- DESAYUNO: platillos con proteína, grasa buena y fibra. ${goalIsLoss ? "Evita jugos, pan, cereales, avena y carbohidratos simples." : "Modera los carbohidratos simples."}
-- Opciones FÁCILES y rápidas de preparar (máximo 15 min)
-- 3 opciones variadas por comida
-- Respeta alergias: ${form.allergies || "Ninguna"}
-- CENA: No carbohidratos simples. Proteína + vegetales.
+Incluye filas para: Desayuno, Almuerzo, Cena, Merienda AM, Merienda PM.
+
+REGLAS IMPORTANTES PARA LA DIETA:
+- DESAYUNO: Prioriza proteínas y grasas saludables. ${goalIsLoss ? "NUNCA incluyas frutas, jugos, pan, cereales, avena ni carbohidratos simples en el desayuno. Opciones: huevos, aguacate, yogurt griego sin azúcar, frutos secos, proteína." : "Limita los carbohidratos simples. Prioriza huevos, aguacate, yogurt griego, frutos secos."}
+- Las opciones deben ser FÁCILES y rápidas de preparar (máximo 15 min)
+- Da 3 opciones variadas por comida para que el usuario tenga variedad
+- Respeta las alergias: ${form.allergies || "Ninguna"}
+- CENA: No incluyas carbohidratos simples. Enfócate en proteína + vegetales.
 - Nota sobre objetivo calórico: ~${Math.round(goalIsLoss ? metrics.tdee - 400 : metrics.tdee)} kcal/día
 
 ## 🏋️ Plan de Entrenamiento
 Solo escribe: "¡Usa los botones abajo para elegir tu estilo de entrenamiento favorito y recibir tu rutina personalizada!"
 
 ## 📈 Metas Diarias
-Lista estos tres puntos:
+Lista estos tres puntos claramente:
 - Ingesta calórica diaria: ${Math.round(goalIsLoss ? metrics.tdee - 400 : metrics.tdee)} calorías
 - Meta de agua diaria: ${form.water === "8+" ? "10" : "8"} tazas
 - Meta de pasos diarios: ${form.exercise === "0" ? "6000" : form.exercise === "1-2" ? "8000" : "10000"} pasos
 
 ## 💊 Suplementos y Vitaminas
-Lista 5-6 suplementos/vitaminas personalizados, uno por línea con este formato exacto: "Nombre — razón breve de por qué lo necesita". Ejemplo: "Vitamina D3 — apoya tus defensas y el ánimo si te falta sol".
+Lista 5-6 nombres de suplementos/vitaminas personalizados para este perfil (uno por línea, como punto de lista). Solo el nombre, sin descripción.
 
-## 📈 Cómo Evitar Picos de Glucosa
-Basándote en Jessie Inchauspé (Glucose Goddess / "Glucose Revolution"), lista 6 consejos prácticos:
-- MUY simple, como explicándole a un amigo
-- 1-2 oraciones cada uno
+## 🩸 Cómo Evitar Picos de Glucosa
+Basándote en los principios de Jessie Inchauspé (Glucose Goddess / "Glucose Revolution"), lista 6 consejos prácticos:
+- Escrito de forma MUY simple, como explicándole a un amigo
+- 1-2 oraciones máximo cada uno
 - Incluye: vinagre antes de comer, comer vegetales primero, vestir los carbohidratos, caminar después de comer, desayuno salado, no comer dulce con el estómago vacío
 
 ## 💡 Datos Curiosos y Micro-Lecciones
-Lista exactamente 10 datos curiosos MEZCLADOS en orden aleatorio (no agrupes por tema). DEBE incluir:
-- 2 datos sobre la conexión intestino-cerebro (basados en "Your Brain on Food" de Uma Naidoo, MD). En uno menciona que Hipócrates dijo "Toda enfermedad comienza en el intestino" hace más de 2000 años.
+Lista exactamente 8 datos curiosos. DEBE incluir:
+- 2 datos sobre la conexión intestino-cerebro (basados en "Your Brain on Food" de Uma Naidoo, MD). Menciona que Hipócrates dijo "Toda enfermedad comienza en el intestino" hace más de 2000 años.
 - 1 dato sobre alimentación intuitiva (basado en "Intuitive Eating" de Evelyn Tribole y Elyse Resch): reconectar con las señales de hambre y saciedad, sin dietas restrictivas.
-- 7 datos generales variados y sorprendentes sobre nutrición, ejercicio, sueño, hidratación, metabolismo, salud mental o curiosidades del cuerpo humano.
-IMPORTANTE: Mezcla todos en orden aleatorio. Cada dato 1-2 oraciones, lenguaje simple.
+- 5 datos más sobre nutrición o movimiento relevantes para la meta del usuario.
+Cada dato 1-2 oraciones, lenguaje simple.
 
 ${isFemale ? `## 🌸 Guía del Ciclo Femenino
-Proporciona orientación DETALLADA para cada fase. Usa ### para cada nombre de fase exactamente como está escrito. Para CADA fase incluye TODOS estos aspectos:
-IMPORTANTE para el "Menú del día": escribe PLATILLOS COMPLETOS, específicos y apetecibles (ejemplo de formato: "Omelette de 2 huevos con espinaca, ½ aguacate y queso panela"), NUNCA ingredientes sueltos al azar ni combinaciones raras. Adáptalos al perfil de la persona: su meta (${form.goal}), lo que describió que come ("${form.diet}") y sus alergias (${form.allergies || "Ninguna"}), y usa alimentos apropiados para cada fase. Prioriza proteína, grasa buena y fibra.
+Proporciona orientación específica para cada fase. Usa ### para cada nombre de fase exactamente como está escrito.
+En "Menú del día" escribe PLATILLOS específicos y apetecibles (ejemplo de formato: "Omelette de 2 huevos con espinaca, ½ aguacate y queso panela"), NUNCA ingredientes sueltos ni combinaciones raras; adáptalos al perfil y a los alimentos apropiados para cada fase.
 
 ### Fase Menstrual (Días 1–5)
-- **Estado de ánimo:** cómo te podrías sentir emocionalmente
-- **Energía:** nivel de energía esperado
-- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué ayudan
+- **Energía:** qué esperar
+- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué
 - **Entrenamiento:** tipo e intensidad recomendada
-- **Sueño:** consejos específicos para dormir mejor en esta fase
 - **Suplementos:** 2-3 suplementos clave
-- **Tip general:** un consejo poderoso para esta fase
-- **Menú del día:** Desayuno: [platillo específico y apetecible con 2-4 alimentos que combinen y porción] | Comida: [platillo específico con proteína, verdura y porción] | Cena: [platillo ligero específico]${wantsSnacks ? " | Snack: [snack concreto]" : ""}
+- **Consejo:** un tip poderoso para esta fase
+- **Menú del día:** Desayuno: [platillo específico] | Comida: [platillo específico] | Cena: [platillo específico] | Snack: [snack específico]
 
 ### Fase Folicular (Días 6–13)
-- **Estado de ánimo:** cómo te podrías sentir emocionalmente
-- **Energía:** nivel de energía esperado
-- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué ayudan
+- **Energía:** qué esperar
+- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué
 - **Entrenamiento:** tipo e intensidad recomendada
-- **Sueño:** consejos específicos para dormir mejor en esta fase
 - **Suplementos:** 2-3 suplementos clave
-- **Tip general:** un consejo poderoso para esta fase
-- **Menú del día:** Desayuno: [platillo específico y apetecible con 2-4 alimentos que combinen y porción] | Comida: [platillo específico con proteína, verdura y porción] | Cena: [platillo ligero específico]${wantsSnacks ? " | Snack: [snack concreto]" : ""}
+- **Consejo:** un tip poderoso para esta fase
+- **Menú del día:** Desayuno: [platillo específico] | Comida: [platillo específico] | Cena: [platillo específico] | Snack: [snack específico]
 
 ### Fase Ovulatoria (Días 14–16)
-- **Estado de ánimo:** cómo te podrías sentir emocionalmente
-- **Energía:** nivel de energía esperado
-- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué ayudan
+- **Energía:** qué esperar
+- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué
 - **Entrenamiento:** tipo e intensidad recomendada
-- **Sueño:** consejos específicos para dormir mejor en esta fase
 - **Suplementos:** 2-3 suplementos clave
-- **Tip general:** un consejo poderoso para esta fase
-- **Menú del día:** Desayuno: [platillo específico y apetecible con 2-4 alimentos que combinen y porción] | Comida: [platillo específico con proteína, verdura y porción] | Cena: [platillo ligero específico]${wantsSnacks ? " | Snack: [snack concreto]" : ""}
+- **Consejo:** un tip poderoso para esta fase
+- **Menú del día:** Desayuno: [platillo específico] | Comida: [platillo específico] | Cena: [platillo específico] | Snack: [snack específico]
 
 ### Fase Lútea (Días 17–28)
-- **Estado de ánimo:** cómo te podrías sentir emocionalmente
-- **Energía:** nivel de energía esperado
-- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué ayudan
+- **Energía:** qué esperar
+- **Mejores alimentos:** lista 4-5 alimentos específicos y por qué
 - **Entrenamiento:** tipo e intensidad recomendada
-- **Sueño:** consejos específicos para dormir mejor en esta fase
 - **Suplementos:** 2-3 suplementos clave
-- **Tip general:** un consejo poderoso para esta fase
-- **Menú del día:** Desayuno: [platillo específico y apetecible con 2-4 alimentos que combinen y porción] | Comida: [platillo específico con proteína, verdura y porción] | Cena: [platillo ligero específico]${wantsSnacks ? " | Snack: [snack concreto]" : ""}` : ""}
+- **Consejo:** un tip poderoso para esta fase
+- **Menú del día:** Desayuno: [platillo específico] | Comida: [platillo específico] | Cena: [platillo específico] | Snack: [snack específico]` : ""}
 
 Termina con un mensaje motivacional corto y cálido personalizado para su situación (sin encabezado ##).`;
 
-    // Reintenta si la IA responde sin el formato de secciones (## ...)
-    let text = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const t = await callAI(prompt, 3500);
-        if (t && t.includes("## ")) { text = t; break; }
-      } catch { /* reintentar */ }
-    }
-    if (text && text.includes("## ")) {
+    try {
+      const text = await callAI(prompt, 3500);
       setPlanData({ raw: text, isFemale, phaseInfo, userProfile: form, metrics });
-    } else {
-      setError("La IA respondió incompleto. Espera unos segundos y vuelve a intentar. 🙏");
-    }
+    } catch { setError("Algo salió mal. Por favor intenta de nuevo."); }
     setLoading(false);
   };
 
@@ -984,6 +953,7 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Segoe UI', system-ui, sans-serif", padding: "24px 16px" }}>
       <div style={{ maxWidth: 660, margin: "0 auto" }}>
+
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 48, marginBottom: 6 }}>🥝</div>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 900, color: C.primary, letterSpacing: -1 }}>FudnFuel Plan</h1>
@@ -995,11 +965,16 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
             <PrivacyBadge />
             <div style={cardStyle}>
               <div style={{ fontWeight: 800, fontSize: 18, color: C.primary, marginBottom: 18 }}>📋 Cuéntanos sobre ti</div>
+
               <Field label="¿Cuál es tu meta principal? *">
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {goals.map(g => <button key={g} onClick={() => set("goal", g)} style={{ ...btnOutline(form.goal === g), borderRadius: 20, padding: "7px 16px", fontSize: 14 }}>{g}</button>)}
+                  {goals.map(g => (
+                    <button key={g} onClick={() => set("goal", g)}
+                      style={{ ...btnOutline(form.goal === g), borderRadius: 20, padding: "7px 16px", fontSize: 14 }}>{g}</button>
+                  ))}
                 </div>
               </Field>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
                 <Field label="Edad *"><input style={inputStyle} type="number" placeholder="ej. 28" value={form.age} onChange={e => set("age", e.target.value)} /></Field>
                 <Field label="Sexo *">
@@ -1011,6 +986,7 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
                   </select>
                 </Field>
               </div>
+
               <Field label="Peso *">
                 <div style={{ display: "flex", gap: 8 }}>
                   <input style={{ ...inputStyle, flex: 1 }} type="number" placeholder="ej. 70" value={form.weight} onChange={e => set("weight", e.target.value)} />
@@ -1019,6 +995,7 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
                   </select>
                 </div>
               </Field>
+
               <Field label="Altura *">
                 <div style={{ display: "flex", gap: 8 }}>
                   <input style={{ ...inputStyle, flex: 1 }} type="number" placeholder="ej. 165" value={form.height} onChange={e => set("height", e.target.value)} />
@@ -1027,11 +1004,13 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
                   </select>
                 </div>
               </Field>
+
               <Field label="Describe tu dieta actual *">
                 <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }}
                   placeholder="ej. Como mucha comida rápida, me salto el desayuno, tomo refresco todos los días..."
                   value={form.diet} onChange={e => set("diet", e.target.value)} />
               </Field>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
                 <Field label="Sesiones de ejercicio por semana *">
                   <select style={inputStyle} value={form.exercise} onChange={e => set("exercise", e.target.value)}>
@@ -1053,13 +1032,16 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
                   </select>
                 </Field>
               </div>
+
               <Field label="Alergias o intolerancias alimentarias">
                 <input style={inputStyle} placeholder="ej. lactosa, nueces, gluten..." value={form.allergies} onChange={e => set("allergies", e.target.value)} />
               </Field>
               <Field label="Condiciones de salud relevantes">
                 <input style={inputStyle} placeholder="ej. SOP, diabetes, hipertensión, tiroides..." value={form.conditions} onChange={e => set("conditions", e.target.value)} />
               </Field>
+
               {error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 10, fontWeight: 600 }}>⚠️ {error}</div>}
+
               <button style={{ ...btnPrimary, width: "100%", padding: "14px", fontSize: 16, borderRadius: 14, marginTop: 4 }} onClick={handleSubmit}>
                 ✨ Generar mi FudnFuel Plan
               </button>
@@ -1085,13 +1067,13 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
               <p style={{ color: C.muted, fontSize: 14 }}>Personalizado para tu meta: {planData.userProfile?.goal}</p>
             </div>
 
-            {/* Descargar guía PDF diseñada */}
+            {/* Descargar guía PDF (menú + rutina + más) */}
             <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}`, textAlign: "center" }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: C.primary, marginBottom: 4 }}>📄 Descarga tu guía nutricional</div>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>Un PDF horizontal, bonito y listo para imprimir o traer en tu celular.</div>
+              <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>Un PDF horizontal con tu menú y tu rutina, listo para imprimir o traer en tu celular.</div>
               <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
                 <button onClick={exportGuidePDF} disabled={pdfLoading || needsPeriodForPdf}
-                  title={needsPeriodForPdf ? "Registra tu periodo abajo para incluir el cycle syncing" : ""}
+                  title={needsPeriodForPdf ? "Registra tu periodo abajo para incluir el menú por fase" : ""}
                   style={{ ...btnPrimary, opacity: (pdfLoading || needsPeriodForPdf) ? 0.55 : 1, cursor: (pdfLoading || needsPeriodForPdf) ? "default" : "pointer" }}>
                   {pdfLoading ? "⏳ Generando PDF..." : "⬇️ Descargar guía PDF"}
                 </button>
@@ -1105,7 +1087,7 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
               {femaleNow && (
                 <div style={{ fontSize: 12, color: needsPeriodForPdf ? "#b5732b" : C.muted, marginTop: 10 }}>
                   {needsPeriodForPdf
-                    ? "🗓️ Para incluir el cycle syncing, primero registra la fecha de tu periodo y la duración de tu ciclo aquí abajo."
+                    ? "🗓️ Para incluir el menú por fase, primero registra la fecha de tu periodo y la duración de tu ciclo aquí abajo."
                     : "Tu guía agrega una página por fase del ciclo (menstrual, folicular, ovulatoria y lútea) con su menú."}
                 </div>
               )}
@@ -1113,12 +1095,13 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
             </div>
 
             {planData.isFemale && <CycleCalendar onPhaseCalc={setPhaseInfo} />}
+
+            {/* Análisis corporal con métricas calculadas localmente */}
             <BodyAnalysisCard metrics={planData.metrics} goal={planData.userProfile?.goal} />
+
             {parseAndRenderPlan({ ...planData, phaseInfo, onRoutine: setRoutineText })}
 
             <PdfGuide planData={{ ...planData, phaseInfo, routineText }} includeCycle={includeCycle} />
-
-            <FudnFuelChat userProfile={planData.userProfile} />
 
             <div style={{ ...cardStyle, background: C.primary, textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>⭐️</div>
