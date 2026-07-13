@@ -76,13 +76,12 @@ function LearnMore({ prompt }) {
     if (info) { setOpen(o => !o); return; }
     setOpen(true); setLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 300,
-          messages: [{ role: "user", content: `En 3-4 oraciones, explica de manera simple y amigable en español latinoamericano: ${prompt}. Enfócate en los beneficios prácticos para la salud y el bienestar.` }] }),
+        body: JSON.stringify({ prompt: `En 3-4 oraciones, explica de manera simple y amigable en español latinoamericano: ${prompt}. Enfócate en los beneficios prácticos para la salud y el bienestar.`, maxTokens: 300 }),
       });
       const d = await res.json();
-      setInfo(d.content?.map(b => b.text || "").join("") || "");
+      setInfo(d.text || "");
     } catch { setInfo("No se pudo cargar la información. Intenta de nuevo."); }
     setLoading(false);
   };
@@ -182,13 +181,12 @@ function WorkoutRoutineChooser({ userProfile }) {
   const fetchRoutine = async (t) => {
     setType(t); setLoading(true); setRoutine("");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 800,
-          messages: [{ role: "user", content: `Crea una rutina semanal detallada de ${t.replace(/[^\w ]/g, "").trim()} en español latinoamericano para alguien que entrena ${userProfile.exercise} días por semana, pesa ${userProfile.weight}${userProfile.weightUnit}, y su meta es: ${userProfile.goal}. Formato: tabla markdown con columnas: Día | Enfoque | Ejercicios | Duración. Práctica y adecuada para nivel principiante-intermedio. Solo la tabla, sin texto introductorio.` }] }),
+        body: JSON.stringify({ prompt: `Crea una rutina semanal detallada de ${t.replace(/[^\w ]/g, "").trim()} en español latinoamericano para alguien que entrena ${userProfile.exercise} días por semana, pesa ${userProfile.weight}${userProfile.weightUnit}, y su meta es: ${userProfile.goal}. Formato: tabla markdown con columnas: Día | Enfoque | Ejercicios | Duración. Práctica y adecuada para nivel principiante-intermedio. Solo la tabla, sin texto introductorio.`, maxTokens: 800 }),
       });
       const d = await res.json();
-      setRoutine(d.content?.map(b => b.text || "").join("") || "");
+      setRoutine(d.text || "");
     } catch { setRoutine("No se pudo cargar la rutina. Intenta de nuevo."); }
     setLoading(false);
   };
@@ -602,12 +600,12 @@ Proporciona orientación específica para cada fase. Usa ### para cada nombre de
 Termina con un mensaje motivacional corto y cálido personalizado para su situación (sin encabezado ##).`;
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ prompt, maxTokens: 3000 }),
       });
       const d = await res.json();
-      const text = d.content?.map(b => b.text || "").join("") || "";
+      const text = d.text || "";
       setPlanData({ raw: text, isFemale, phaseInfo, userProfile: form });
     } catch { setError("Algo salió mal. Por favor intenta de nuevo."); }
     setLoading(false);
