@@ -812,6 +812,65 @@ function parseFacts(text) {
     .map(l => l.replace(/^[-•*\d.]\s*/, "").replace(/\*\*/g, "").trim()).filter(l => l.length > 20);
 }
 
+function FudnFuelChat({ userProfile }) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [loading, setLoading] = useState(false);
+  const examples = [
+    "¿Qué es el kéfir y por qué lo debería tomar?",
+    "¿Cuántas horas debería dormir?",
+    "¿Cuánto café debería tomar y a qué hora?",
+    "¿Qué puedo cenar si tengo antojo de dulce?",
+    "¿Es malo comer después de las 8pm?",
+    "¿Qué snacks saludables puedo comer en la oficina?",
+  ];
+  const ask = async (q) => {
+    const query = q || question;
+    if (!query.trim()) return;
+    setQuestion(query); setLoading(true); setAnswer("");
+    try {
+      const text = await callAI(`Eres un coach de bienestar experto. Un usuario con este perfil te hace una pregunta:
+- Meta: ${userProfile?.goal || "estar saludable"}
+- Edad: ${userProfile?.age || "adulto"}
+- Sexo: ${userProfile?.sex || "no especificado"}
+
+Pregunta: "${query}"
+
+Responde en español latinoamericano, de forma simple y amigable en 3-5 oraciones. Al final incluye la fuente o referencia científica de tu respuesta (nombre del estudio, libro, o institución). Formato: "📚 Fuente: [referencia]"`, 400);
+      setAnswer(text);
+    } catch { setAnswer("No se pudo obtener respuesta. Intenta de nuevo."); }
+    setLoading(false);
+  };
+  return (
+    <div style={{ ...cardStyle, borderLeft: `4px solid ${C.accent}` }}>
+      <div style={{ fontWeight: 700, fontSize: 17, color: C.primary, marginBottom: 8 }}>💬 Pregúntale a FudnFuel</div>
+      <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Hazme cualquier pregunta sobre nutrición, ejercicio o bienestar</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+        {examples.map((ex, i) => (
+          <button key={i} onClick={() => ask(ex)}
+            style={{ background: C.light, border: `1px solid #b8ccaa`, borderRadius: 20, padding: "6px 14px", fontSize: 12, color: C.primary, cursor: "pointer", fontWeight: 500 }}>
+            {ex}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...inputStyle, flex: 1 }} placeholder="Escribe tu pregunta..."
+          value={question} onChange={e => setQuestion(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && ask()} />
+        <button onClick={() => ask()} style={{ ...btnPrimary, padding: "10px 20px", borderRadius: 10 }}>
+          {loading ? "..." : "Preguntar"}
+        </button>
+      </div>
+      {loading && <div style={{ color: C.muted, fontSize: 14, marginTop: 12 }}>🔍 Buscando respuesta...</div>}
+      {answer && (
+        <div style={{ marginTop: 14, padding: "14px 16px", background: C.light, borderRadius: 12, fontSize: 14, lineHeight: 1.7, color: C.text }}>
+          {answer}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [form, setForm] = useState({
     age: "", weight: "", weightUnit: "kg", height: "", heightUnit: "cm",
@@ -1121,6 +1180,8 @@ Termina con un mensaje motivacional corto y cálido personalizado para su situac
             {parseAndRenderPlan({ ...planData, phaseInfo, onRoutine: setRoutineText })}
 
             <PdfGuide planData={{ ...planData, phaseInfo, routineText }} includeCycle={includeCycle} />
+
+            <FudnFuelChat userProfile={planData.userProfile} />
 
             <div style={{ ...cardStyle, background: C.primary, textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>⭐️</div>
