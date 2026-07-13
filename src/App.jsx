@@ -530,13 +530,6 @@ function PhaseBadge({ phase }) {
   );
 }
 
-// Deja solo la rutina (desde "Día 1"), descartando cualquier razonamiento previo
-function cleanRoutine(raw) {
-  const t = String(raw || "");
-  const idx = t.search(/(\*\*\s*)?d[ií]a\s*\d/i);
-  return (idx > 0 ? t.slice(idx) : t).trim();
-}
-
 function WorkoutRoutineChooser({ userProfile, onRoutine }) {
   const [type, setType] = useState(null);
   const [routine, setRoutine] = useState("");
@@ -561,9 +554,8 @@ Al final agrega una línea: "📚 Basado en lineamientos ACSM (American College 
 Solo la rutina, sin texto introductorio.`,
         800
       );
-      const cleaned = cleanRoutine(text);
-      setRoutine(cleaned);
-      if (onRoutine) onRoutine(cleaned);
+      setRoutine(text);
+      if (onRoutine) onRoutine(text);
     } catch { setRoutine("No se pudo cargar la rutina. Intenta de nuevo."); }
     setLoading(false);
   };
@@ -907,8 +899,6 @@ export default function App() {
 
     const prompt = `Eres un nutricionista profesional, entrenador personal y coach de bienestar. Genera un plan de bienestar personalizado y completo. Responde TODO en español latinoamericano, con un tono cálido, motivador y cercano.
 
-FORMATO CRÍTICO: cada sección DEBE empezar con "## " (dos numerales y un espacio) y su título en la misma línea, tal como se indica abajo. NO muestres tu razonamiento ni escribas en inglés. Responde solo con el plan en el formato pedido.
-
 PERFIL DEL USUARIO:
 - Edad: ${form.age} | Sexo: ${form.sex}
 - Peso: ${form.weight} ${form.weightUnit} (${metrics.weightKg} kg) | Altura: ${form.height} ${form.heightUnit} (${metrics.heightCm} cm)
@@ -1006,19 +996,10 @@ En "Menú del día" escribe PLATILLOS específicos y apetecibles (ejemplo de for
 
 Termina con un mensaje motivacional corto y cálido personalizado para su situación (sin encabezado ##).`;
 
-    // Reintenta sola si la IA falla o responde sin las secciones (## ...)
-    let text = "";
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        const t = await callAI(prompt, 3500);
-        if (t && t.includes("## ")) { text = t; break; }
-      } catch { /* reintentar */ }
-    }
-    if (text && text.includes("## ")) {
+    try {
+      const text = await callAI(prompt, 3500);
       setPlanData({ raw: text, isFemale, phaseInfo, userProfile: form, metrics });
-    } else {
-      setError("La IA está saturada en este momento. Espera unos segundos y vuelve a intentar. 🙏");
-    }
+    } catch { setError("Algo salió mal. Por favor intenta de nuevo."); }
     setLoading(false);
   };
 
