@@ -530,6 +530,17 @@ function PhaseBadge({ phase }) {
   );
 }
 
+// Limpia la respuesta de la rutina: quita metadatos ("User Safety"), razonamiento
+// en inglés y la fuente inline; deja solo la rutina desde "Día 1".
+function cleanRoutine(raw) {
+  let t = String(raw || "");
+  t = t.replace(/^\s*user\s*safety\s*:.*$/gim, "");   // quita "User Safety: safe"
+  t = t.replace(/^\s*📚.*$/gim, "");                    // quita fuente inline (irá al pie)
+  const idx = t.search(/(\*\*\s*)?d[ií]a\s*\d/i);       // corta todo antes de "Día 1"
+  if (idx > 0) t = t.slice(idx);
+  return t.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function WorkoutRoutineChooser({ userProfile, onRoutine }) {
   const [type, setType] = useState(null);
   const [routine, setRoutine] = useState("");
@@ -554,8 +565,13 @@ Al final agrega una línea: "📚 Basado en lineamientos ACSM (American College 
 Solo la rutina, sin texto introductorio.`,
         800
       );
-      setRoutine(text);
-      if (onRoutine) onRoutine(text);
+      const cleaned = cleanRoutine(text);
+      if (cleaned && /d[ií]a\s*\d/i.test(cleaned)) {
+        setRoutine(cleaned);
+        if (onRoutine) onRoutine(cleaned);
+      } else {
+        setRoutine("No se pudo generar la rutina esta vez. Intenta con otro estilo o de nuevo. 🙏");
+      }
     } catch { setRoutine("No se pudo cargar la rutina. Intenta de nuevo."); }
     setLoading(false);
   };
@@ -570,6 +586,11 @@ Solo la rutina, sin texto introductorio.`,
       </div>
       {loading && <div style={{ color: C.muted, fontSize: 14 }}>⏳ Creando tu rutina...</div>}
       {routine && <div style={{ fontSize: 14, lineHeight: 1.8 }}>{renderText(routine)}</div>}
+      {routine && /d[ií]a\s*\d/i.test(routine) && (
+        <div style={sourceStyle}>
+          📚 <strong>Fuentes:</strong> ACSM — American College of Sports Medicine (guías de ejercicio) | OMS — Recomendaciones mundiales sobre actividad física para la salud
+        </div>
+      )}
     </div>
   );
 }
